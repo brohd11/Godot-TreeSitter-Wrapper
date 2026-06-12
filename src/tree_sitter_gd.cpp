@@ -80,8 +80,11 @@ void GDScriptTreeSitter::apply_edit(int p_start_byte,
 void GDScriptTreeSitter::reparse_text(const String &p_text) {
     _src     = p_text.utf8();
     _src_len = (uint32_t)_src.length();
+    bool was_edited = _edited;
     _edited  = false;
-    TSTree *new_tree = ts_parser_parse_string(_parser, _tree,
+    // Only reuse old tree nodes when apply_edit was called first; otherwise the
+    // old positions are in the wrong coordinate space and produce garbled output.
+    TSTree *new_tree = ts_parser_parse_string(_parser, was_edited ? _tree : nullptr,
                                               _src.get_data(), _src_len);
     ERR_FAIL_COND_MSG(!new_tree, "GDScriptTreeSitter: ts_parser_parse_string returned null.");
     if (_tree) ts_tree_delete(_tree);

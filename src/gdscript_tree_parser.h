@@ -7,7 +7,7 @@ namespace godot {
 // GDScript-specific structural queries on top of GDScriptTreeSitter.
 //
 // All methods accept an access path: "" for the file root, "Inner" for a top-level
-// inner class, "Outer.Inner" for a nested one. get_class_paths() lists all valid paths.
+// inner class, "Outer.Inner" for a nested one. get_classes() lists all valid paths.
 //
 // All three query methods accept an optional changed_only: bool = false.
 // When true, only entries whose tree node was touched by the last incremental
@@ -28,7 +28,8 @@ protected:
     static void _bind_methods();
 
 public:
-    Array      get_class_paths();
+    Dictionary parse_script(const String &p_script_path);
+    Dictionary get_classes();
     String     get_extends(const String &p_path);
     Dictionary get_members(const String &p_path, bool p_changed_only = false);
     Dictionary get_constants(const String &p_path, bool p_changed_only = false);
