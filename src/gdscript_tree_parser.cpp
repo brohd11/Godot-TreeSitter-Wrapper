@@ -210,6 +210,37 @@ static void collect_classes(TSNode body, TSNode class_def,
 // parse_script() — single-pass full extraction
 // ---------------------------------------------------------------------------
 
+struct Keys {
+    StringName member_type;
+    StringName member_name;
+    StringName type;
+    StringName has_static_type;
+    StringName assignment;
+    StringName line_index;
+    StringName column_index;
+    StringName access_path;
+    StringName script_path;
+    StringName variadic;
+
+    static const Keys &get() {
+        static Keys k = {
+            "member_type", "member_name", "type", "has_static_type",
+            "assignment", "line_index", "column_index",
+            "access_path", "script_path", "variadic"
+        };
+        return k;
+    }
+};
+
+static StringName to_string_name(const String &s) {
+    return s.is_empty() ? StringName() : StringName(s);
+}
+
+static StringName check_type(const String &s) {
+    return s.begins_with(":") && s.ends_with("=") ? StringName() : StringName(s);
+}
+
+
 // Forward declaration: collect_locals_v2 and parse_lambda_info_v2 are mutually recursive.
 static void collect_locals_v2(TSNode node, const char *src, uint32_t src_len,
                                const String &access_path, const String &script_path,
@@ -255,7 +286,7 @@ static Dictionary parse_params_v2(TSNode params, const char *src, uint32_t src_l
         if (name.is_empty()) continue;
         Dictionary info;
         info["member_type"]     = String("func_arg");
-        info["member_name"]     = name;
+        info["member_name"]     = to_string_name(name);
         info["type"]            = type;
         info["has_static_type"] = !type.is_empty();
         info["default"]         = default_val;
@@ -309,20 +340,27 @@ static void collect_locals_v2(TSNode node, const char *src, uint32_t src_len,
         String name = ts_field(node, "name", src, src_len);
         if (!name.is_empty()) {
             TSNode sf = ts_field_node(node, "static");
-            String type = ts_field(node, "type", src, src_len);
+            TSNode type_node = ts_field_node(node, "type");
+            String type;
+            if (!ts_node_is_null(type_node) &&
+                strcmp(ts_node_type(type_node), "inferred_type") != 0) {
+                type = ts_text(type_node, src, src_len);
+            }
             TSNode val_node = ts_field_node(node, "value");
+            int line_idx = (int)ts_node_start_point(node).row;
+            int col_idx = (int)ts_node_start_point(node).column;
             Dictionary info;
             info["member_type"]     = ts_node_is_null(sf) ? String("var") : String("static var");
             info["member_name"]     = name;
             info["type"]            = type;
             info["has_static_type"] = !type.is_empty();
             info["assignment"]      = ts_node_is_null(val_node) ? String() : ts_text(val_node, src, src_len);
-            info["line_index"]      = (int)ts_node_start_point(node).row;
-            info["column_index"]    = (int)ts_node_start_point(node).column;
+            info["line_index"]      = line_idx;
+            info["column_index"]    = col_idx;
             info["access_path"]     = access_path;
             info["script_path"]     = script_path;
             maybe_attach_lambda_v2(node, info, src, src_len, access_path, script_path);
-            locals[name] = info;
+            locals[name + String("-") + itos(line_idx) + String("-") + itos(col_idx)] = info;
         }
     } else if (strcmp(t, "for_statement") == 0) {
         TSNode left = ts_field_node(node, "left");
@@ -335,18 +373,27 @@ static void collect_locals_v2(TSNode node, const char *src, uint32_t src_len,
                 name = first_ident_child(left, src, src_len);
                 type = ts_field(left, "type", src, src_len);
             }
+            TSNode right = ts_field_node(node, "right");
+
             if (!name.is_empty()) {
+                int line_idx = (int)ts_node_start_point(node).row;
+                int col_idx = (int)ts_node_start_point(node).column;
                 Dictionary info;
                 info["member_type"]     = String("for");
                 info["member_name"]     = name;
                 info["type"]            = type;
                 info["has_static_type"] = !type.is_empty();
-                info["assignment"]      = String();
-                info["line_index"]      = (int)ts_node_start_point(node).row;
-                info["column_index"]    = (int)ts_node_start_point(node).column;
+                if (!ts_node_is_null(right)) {
+                    info["assignment"]  = ts_text(right, src, src_len);
+                } else {
+                    info["assignment"]  = String();
+                }
+                
+                info["line_index"]      = line_idx;
+                info["column_index"]    = col_idx;
                 info["access_path"]     = access_path;
                 info["script_path"]     = script_path;
-                locals[name] = info;
+                locals[name + String("-") + itos(line_idx) + String("-") + itos(col_idx)] = info;
             }
         }
     }
@@ -456,7 +503,12 @@ static void collect_script(TSNode body, TSNode class_def,
             String name = ts_field(child, "name", src, src_len);
             if (name.is_empty()) continue;
             TSNode sf = ts_field_node(child, "static");
-            String type = ts_field(child, "type", src, src_len);
+            TSNode type_node = ts_field_node(child, "type");
+            String type;
+            if (!ts_node_is_null(type_node) &&
+                strcmp(ts_node_type(type_node), "inferred_type") != 0) {
+                type = ts_text(type_node, src, src_len);
+            }
             TSNode val_node = ts_field_node(child, "value");
             Dictionary info;
             info["member_type"]     = ts_node_is_null(sf) ? String("var") : String("static var");
@@ -528,6 +580,7 @@ static void collect_script(TSNode body, TSNode class_def,
             stub["line_index"]   = (int)ts_node_start_point(child).row;
             stub["column_index"] = (int)ts_node_start_point(child).column;
             stub["end_line"]     = (int)ts_node_end_point(child).row;
+            stub["type"]         = new_path.is_empty() ? script_path : script_path + String(".") + new_path;
             stub["access_path"]  = new_path;
             stub["script_path"]  = script_path;
             inner_classes[name]  = stub;
