@@ -64,6 +64,7 @@ for scanner in [
 ext_sources = [
     "src/register_types.cpp",
     "src/tree_sitter_gd.cpp",
+    "src/gdscript_tree_parser.cpp",
 ]
 
 sources = ts_runtime + ts_grammar + ext_sources
