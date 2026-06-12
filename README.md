@@ -1,4 +1,4 @@
-# gdscript-tree-parser
+# tree-sitter-gd
 
 A Godot 4 GDExtension that exposes a fast, incremental GDScript parser built on
 [tree-sitter](https://tree-sitter.github.io) and the
@@ -16,13 +16,13 @@ a full initial parse takes ~2–3 ms.
 1. Download the latest release zip from the [Releases](../../releases) page.
 2. Unzip it into your Godot project root. It will create:
    ```
-   addons/gdscript_tree_parser/
-   ├── gdscript_tree_parser.gdextension
+   addons/tree_sitter_gd/
+   ├── tree_sitter_gd.gdextension
    ├── plugin.cfg
    ├── plugin.gd
    └── bin/   ← platform libraries
    ```
-3. In Godot: **Project → Project Settings → Plugins** → enable **GDScript Tree Parser**.
+3. In Godot: **Project → Project Settings → Plugins** → enable **tree-sitter-gd**.
 
 ---
 
@@ -125,7 +125,7 @@ scons target=template_debug
 scons target=template_release
 ```
 
-Output: `bin/libgdscript_tree_parser.linux.template_debug.x86_64.so`
+Output: `bin/libtree_sitter_gd.linux.template_debug.x86_64.so`
 
 ### Windows (MSVC — recommended)
 
@@ -135,13 +135,13 @@ Output: `bin/libgdscript_tree_parser.linux.template_debug.x86_64.so`
 4. Open the **"x64 Native Tools Command Prompt for VS 20xx"** shortcut from the Start menu.
 5. ```bat
    git clone <this-repo>
-   cd gdext
+   cd tree-sitter-gd
    setup.bat
    scons target=template_debug
    scons target=template_release
    ```
 
-Output: `bin/libgdscript_tree_parser.windows.template_debug.x86_64.dll`
+Output: `bin/libtree_sitter_gd.windows.template_debug.x86_64.dll`
 
 > **MinGW alternative:** Install MSYS2, then `pacman -S mingw-w64-x86_64-gcc python-pip`.
 > Add `use_mingw=yes` to the scons command.
@@ -152,17 +152,17 @@ Output: `bin/libgdscript_tree_parser.windows.template_debug.x86_64.dll`
 
 Build on each platform, then create a GitHub Release and upload a zip containing:
 ```
-addons/gdscript_tree_parser/
-├── gdscript_tree_parser.gdextension
+addons/tree_sitter_gd/
+├── tree_sitter_gd.gdextension
 ├── plugin.cfg
 ├── plugin.gd
 └── bin/
-    ├── libgdscript_tree_parser.macos.template_debug.universal.dylib
-    ├── libgdscript_tree_parser.macos.template_release.universal.dylib
-    ├── libgdscript_tree_parser.linux.template_debug.x86_64.so
-    ├── libgdscript_tree_parser.linux.template_release.x86_64.so
-    ├── libgdscript_tree_parser.windows.template_debug.x86_64.dll
-    └── libgdscript_tree_parser.windows.template_release.x86_64.dll
+    ├── libtree_sitter_gd.macos.template_debug.universal.dylib
+    ├── libtree_sitter_gd.macos.template_release.universal.dylib
+    ├── libtree_sitter_gd.linux.template_debug.x86_64.so
+    ├── libtree_sitter_gd.linux.template_release.x86_64.so
+    ├── libtree_sitter_gd.windows.template_debug.x86_64.dll
+    └── libtree_sitter_gd.windows.template_release.x86_64.dll
 ```
 
 ---

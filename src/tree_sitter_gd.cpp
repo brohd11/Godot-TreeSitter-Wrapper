@@ -1,4 +1,4 @@
-#include "gdscript_tree_parser.h"
+#include "tree_sitter_gd.h"
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>

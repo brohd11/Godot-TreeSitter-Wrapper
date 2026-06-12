@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# GDExtension build script for gdscript_tree_parser
+# GDExtension build script for tree-sitter-gd
 #
 # Prerequisites (add as git submodules or clone manually):
 #
@@ -13,7 +13,7 @@
 #   scons target=template_release  # release build
 #
 # The compiled library lands in bin/. Copy both bin/ and
-# gdscript_tree_parser.gdextension into your Godot project.
+# tree_sitter_gd.gdextension into your Godot project.
 
 import os
 
@@ -63,7 +63,7 @@ for scanner in [
 
 ext_sources = [
     "src/register_types.cpp",
-    "src/gdscript_tree_parser.cpp",
+    "src/tree_sitter_gd.cpp",
 ]
 
 sources = ts_runtime + ts_grammar + ext_sources
@@ -74,7 +74,7 @@ suffix = env["suffix"]      # e.g.  .macos.template_debug.arm64
 shlibsuffix = env["SHLIBSUFFIX"]  # .dylib / .dll / .so
 
 library = env.SharedLibrary(
-    "bin/libgdscript_tree_parser{}{}".format(suffix, shlibsuffix),
+    "bin/libtree_sitter_gd{}{}".format(suffix, shlibsuffix),
     source=sources,
 )
 
