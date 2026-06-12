@@ -1,0 +1,17 @@
+[configuration]
+entry_symbol = "gdscript_tree_parser_init"
+compatibility_minimum = "4.1"
+reloadable = true
+
+[libraries]
+; macOS — godot-cpp builds a universal binary by default
+macos.debug   = "res://addons/gdscript_tree_parser/bin/libgdscript_tree_parser.macos.template_debug.universal.dylib"
+macos.release = "res://addons/gdscript_tree_parser/bin/libgdscript_tree_parser.macos.template_release.universal.dylib"
+
+; Linux
+linux.debug.x86_64   = "res://addons/gdscript_tree_parser/bin/libgdscript_tree_parser.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://addons/gdscript_tree_parser/bin/libgdscript_tree_parser.linux.template_release.x86_64.so"
+
+; Windows
+windows.debug.x86_64   = "res://addons/gdscript_tree_parser/bin/libgdscript_tree_parser.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://addons/gdscript_tree_parser/bin/libgdscript_tree_parser.windows.template_release.x86_64.dll"

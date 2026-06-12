@@ -1,0 +1,13 @@
+# Compiled output
+bin/
+*.os
+
+# SCons cache
+.sconsign.dblite
+
+# Python
+*.pyc
+__pycache__/
+
+# macOS
+.DS_Store
