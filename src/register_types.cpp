@@ -1,6 +1,7 @@
 #include "register_types.h"
 #include "tree_sitter_gd.h"
 #include "gdscript_tree_parser.h"
+#include "gdscript_tree_query.h"
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
 
@@ -10,6 +11,7 @@ void initialize_tree_sitter_gd_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
     ClassDB::register_class<GDScriptTreeSitter>();
     ClassDB::register_class<GDScriptTreeParser>();
+    ClassDB::register_class<GDScriptTreeQuery>();
 }
 
 void uninitialize_tree_sitter_gd_module(ModuleInitializationLevel p_level) {

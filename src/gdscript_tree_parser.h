@@ -4,22 +4,20 @@
 
 namespace godot {
 
-// GDScript-specific structural queries on top of GDScriptTreeSitter.
+// Single-pass full extraction of a GDScript file's structure.
 //
-// All methods accept an access path: "" for the file root, "Inner" for a top-level
-// inner class, "Outer.Inner" for a nested one. get_classes() lists all valid paths.
+// parse_script(script_path) walks the tree once and returns a dictionary keyed
+// by access path ("" for the file root, "Outer.Inner" for nested classes). Each
+// entry is a class scope:
+//   { "member_type":"class", "member_name", "access_path", "script_path",
+//     "class_name", "extends", "line_index", "column_index", "end_line",
+//     "members":       { name → member info },
+//     "constants":     { name → const/enum info (inherited consts included) },
+//     "inner_classes": { name → stub } }
+// member_type / member_name / type / return_type / access_path / script_path are
+// StringName; positional fields are ints; assignment/default hold expression text.
 //
-// All three query methods accept an optional changed_only: bool = false.
-// When true, only entries whose tree node was touched by the last incremental
-// reparse are returned (requires apply_edit + reparse_text, not just reparse_text).
-//
-// get_members()  { name: { "keyword", "line", "type", "changed"
-//                          funcs also: "end_line", "return_type",
-//                            "args":   { param → { "type","default","variadic" } },
-//                            "locals": { name  → { "keyword","line","type"[,"lambda"] } }
-//                          vars whose value is a lambda also: "lambda": { same shape as func } } }
-// get_constants(){ name: { "keyword", "line", "type", "changed" } }
-// get_inner_classes() { name: { "line", "extends", "changed" } }
+// For granular per-path / changed_only queries, see GDScriptTreeQuery.
 
 class GDScriptTreeParser : public GDScriptTreeSitter {
     GDCLASS(GDScriptTreeParser, GDScriptTreeSitter);
@@ -29,11 +27,6 @@ protected:
 
 public:
     Dictionary parse_script(const String &p_script_path);
-    Dictionary get_classes();
-    String     get_extends(const String &p_path);
-    Dictionary get_members(const String &p_path, bool p_changed_only = false);
-    Dictionary get_constants(const String &p_path, bool p_changed_only = false);
-    Dictionary get_inner_classes(const String &p_path, bool p_changed_only = false);
 };
 
 } // namespace godot
