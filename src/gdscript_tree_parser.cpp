@@ -339,11 +339,128 @@ static void collect_script(TSNode body, TSNode class_def,
 }
 
 // ---------------------------------------------------------------------------
+// sparse_parse() — lightweight symbol pass for syntax highlighting
+// ---------------------------------------------------------------------------
+
+// Parameter names only (no types/defaults/positions).
+static Array sparse_args(TSNode params, const char *src, uint32_t src_len) {
+    Array out;
+    if (ts_node_is_null(params)) return out;
+    uint32_t count = ts_node_named_child_count(params);
+    for (uint32_t i = 0; i < count; i++) {
+        TSNode p = ts_node_named_child(params, i);
+        const char *t = ts_node_type(p);
+        String name;
+        if (strcmp(t, "identifier") == 0) {
+            name = ts_text(p, src, src_len);
+        } else if (strcmp(t, "typed_parameter") == 0 ||
+                   strcmp(t, "default_parameter") == 0 ||
+                   strcmp(t, "typed_default_parameter") == 0) {
+            name = first_ident_child(p, src, src_len);
+        } else if (strcmp(t, "variadic_parameter") == 0) {
+            uint32_t vc = ts_node_named_child_count(p);
+            if (vc > 0) {
+                TSNode inner = ts_node_named_child(p, 0);
+                name = strcmp(ts_node_type(inner), "identifier") == 0
+                           ? ts_text(inner, src, src_len)
+                           : first_ident_child(inner, src, src_len);
+            }
+        } else { continue; }
+        if (!name.is_empty()) out.push_back(to_string_name(name));
+    }
+    return out;
+}
+
+// Stripped sibling of collect_script. Populates two parallel trees keyed by
+// access path: `members_out` holds position-independent symbol data (name-only
+// members/constants + a functions map of arg names) so it can be hashed to detect
+// real symbol changes; `lines_out` holds the class + function line ranges.
+// No locals, assignments, lambdas, types, inner-class lists, or inheritance.
+static void collect_symbols(TSNode body, TSNode class_def,
+                              const char *src, uint32_t src_len,
+                              const String &prefix,
+                              Dictionary &members_out, Dictionary &lines_out) {
+    const Keys &K = Keys::get();
+
+    Array members;
+    Array constants;
+    Dictionary mem_funcs;   // name -> { args }            (no positions)
+    Dictionary line_funcs;  // name -> { line_index, end_line }
+
+    uint32_t count = ts_node_named_child_count(body);
+    for (uint32_t i = 0; i < count; i++) {
+        TSNode child = ts_node_named_child(body, i);
+        const char *t = ts_node_type(child);
+
+        if (strcmp(t, "variable_statement") == 0 ||
+            strcmp(t, "export_variable_statement") == 0 ||
+            strcmp(t, "onready_variable_statement") == 0 ||
+            strcmp(t, "signal_statement") == 0) {
+            String name = ts_field(child, "name", src, src_len);
+            if (!name.is_empty()) members.push_back(to_string_name(name));
+            continue;
+        }
+
+        if (strcmp(t, "const_statement") == 0) {
+            String name = ts_field(child, "name", src, src_len);
+            if (!name.is_empty()) constants.push_back(to_string_name(name));
+            continue;
+        }
+
+        if (strcmp(t, "enum_definition") == 0) {
+            String name = ts_field(child, "name", src, src_len);
+            if (name.is_empty()) name = "@anon_enum_" + itos((int)ts_node_start_point(child).row);
+            constants.push_back(to_string_name(name));
+            continue;
+        }
+
+        if (strcmp(t, "function_definition") == 0 || strcmp(t, "constructor_definition") == 0) {
+            bool is_ctor = strcmp(t, "constructor_definition") == 0;
+            String name = is_ctor ? String("_init") : ts_field(child, "name", src, src_len);
+            if (name.is_empty()) continue;
+            Dictionary mf;
+            mf[K.args] = sparse_args(ts_field_node(child, "parameters"), src, src_len);
+            mem_funcs[name] = mf;
+            Dictionary lf;
+            lf[K.line_index] = (int)ts_node_start_point(child).row;
+            lf[K.end_line]   = (int)ts_node_end_point(child).row;
+            line_funcs[name] = lf;
+            continue;
+        }
+
+        if (strcmp(t, "class_definition") == 0) {
+            String name = ts_field(child, "name", src, src_len);
+            if (name.is_empty()) continue;
+            TSNode inner_body = ts_field_node(child, "body");
+            if (!ts_node_is_null(inner_body)) {
+                String new_path = prefix.is_empty() ? name : (prefix + String(".") + name);
+                collect_symbols(inner_body, child, src, src_len, new_path, members_out, lines_out);
+            }
+            continue;
+        }
+    }
+
+    Dictionary mem_scope;
+    mem_scope[K.members]   = members;
+    mem_scope[K.constants] = constants;
+    mem_scope[K.functions] = mem_funcs;
+    members_out[prefix] = mem_scope;
+
+    TSNode anchor = ts_node_is_null(class_def) ? body : class_def;
+    Dictionary line_scope;
+    line_scope[K.line_index] = (int)ts_node_start_point(anchor).row;
+    line_scope[K.end_line]   = (int)ts_node_end_point(anchor).row;
+    line_scope[K.functions]  = line_funcs;
+    lines_out[prefix] = line_scope;
+}
+
+// ---------------------------------------------------------------------------
 // GDScriptTreeParser
 // ---------------------------------------------------------------------------
 
 void GDScriptTreeParser::_bind_methods() {
     ClassDB::bind_method(D_METHOD("parse_script", "script_path"), &GDScriptTreeParser::parse_script);
+    ClassDB::bind_method(D_METHOD("sparse_parse"),               &GDScriptTreeParser::sparse_parse);
 }
 
 Dictionary GDScriptTreeParser::parse_script(const String &p_script_path) {
@@ -352,6 +469,17 @@ Dictionary GDScriptTreeParser::parse_script(const String &p_script_path) {
     Dictionary inherited_constants;
     collect_script(ts_tree_root_node(_tree), TSNode{}, _src.get_data(), _src_len,
                    String(), p_script_path, inherited_constants, out);
+    return out;
+}
+
+Dictionary GDScriptTreeParser::sparse_parse() {
+    Dictionary out;
+    if (_edited || !_tree) return out;
+    Dictionary members_out, lines_out;
+    collect_symbols(ts_tree_root_node(_tree), TSNode{}, _src.get_data(), _src_len,
+                    String(), members_out, lines_out);
+    out[Keys::get().members] = members_out;
+    out[Keys::get().lines]   = lines_out;
     return out;
 }
 

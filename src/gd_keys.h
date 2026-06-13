@@ -34,6 +34,8 @@ struct Keys {
     StringName lambda          = "lambda";
     StringName members         = "members";
     StringName constants       = "constants";
+    StringName functions       = "functions";
+    StringName lines           = "lines";
     StringName inner_classes   = "inner_classes";
     StringName class_name_marker = "__class_name__";
 

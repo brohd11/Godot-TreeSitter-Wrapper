@@ -19,7 +19,6 @@ class_name GDScriptEditorParser extends RefCounted
 var parser := GDScriptTreeParser.new()
 var _edit: CodeEdit = null
 var _script_path := ""
-var _prev_bytes := PackedByteArray()
 var _prev_version := 0
 
 
@@ -32,7 +31,6 @@ func attach(edit: CodeEdit, script_path: String = "") -> void:
 		parser.open_file(script_path)
 	else:
 		parser.open_text(edit.text)
-	_prev_bytes = edit.text.to_utf8_buffer()
 	_prev_version = edit.get_version()
 	edit.text_changed.connect(parse_text)
 
@@ -41,7 +39,6 @@ func detach() -> void:
 	if _edit != null and _edit.text_changed.is_connected(parse_text):
 		_edit.text_changed.disconnect(parse_text)
 	_edit = null
-	_prev_bytes = PackedByteArray()
 	_prev_version = 0
 
 
@@ -61,50 +58,8 @@ func cache_valid() -> bool:
 func parse_text() -> bool:
 	if cache_valid():
 		return false
-
-	var new_text: String = _edit.text
-	var new_bytes: PackedByteArray = new_text.to_utf8_buffer()
-
-	var plen := _prev_bytes.size()
-	var nlen := new_bytes.size()
-
-	# Scan forward to find the first differing byte.
-	var sb := 0
-	while sb < plen and sb < nlen and _prev_bytes[sb] == new_bytes[sb]:
-		sb += 1
-
-	# Scan backward to find old and new end bytes.
-	var oeb := plen
-	var neb := nlen
-	while oeb > sb and neb > sb and _prev_bytes[oeb - 1] == new_bytes[neb - 1]:
-		oeb -= 1
-		neb -= 1
-
-	# Convert byte positions to (row, col) where col is a byte offset within the line,
-	# matching tree-sitter's TSPoint.column convention.
-	var src_rc  := _byte_to_rc(_prev_bytes, sb)
-	var oend_rc := _byte_to_rc(_prev_bytes, oeb)
-	var nend_rc := _byte_to_rc(new_bytes,   neb)
-
-	parser.apply_edit(
-		sb,        oeb,        neb,
-		src_rc.x,  src_rc.y,
-		oend_rc.x, oend_rc.y,
-		nend_rc.x, nend_rc.y,
-	)
-	parser.reparse_text(new_text)
-	_prev_bytes = new_bytes
+	# update_text diffs against the previous source and reparses incrementally,
+	# all in C++ (the byte diff is far too slow in GDScript).
+	parser.update_text(_edit.text)
 	_prev_version = _edit.get_version()
 	return true
-
-
-static func _byte_to_rc(bytes: PackedByteArray, pos: int) -> Vector2i:
-	var row := 0
-	var col := 0
-	for i: int in pos:
-		if bytes[i] == 0x0A:  # '\n'
-			row += 1
-			col = 0
-		else:
-			col += 1
-	return Vector2i(row, col)

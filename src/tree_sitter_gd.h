@@ -12,6 +12,9 @@ namespace godot {
 //
 // Handles the parser/tree lifecycle and exposes:
 //   open_text / open_file     — full parse
+//   update_text               — set the new full text; diffs against the previous
+//                               source in C++ and incrementally reparses in one call
+//                               (replaces the apply_edit + reparse_text dance)
 //   reparse_text              — incremental reparse (pass after apply_edit)
 //   apply_edit                — hint the byte range that changed (UTF-8 byte offsets;
 //                               CodeEdit gives char columns — identical for ASCII,
@@ -47,6 +50,7 @@ public:
                     int p_old_end_row,  int p_old_end_col,
                     int p_new_end_row,  int p_new_end_col);
     void reparse_text(const String &p_text);
+    void update_text(const String &p_new_text);
     Array query(const String &p_pattern);
 };
 

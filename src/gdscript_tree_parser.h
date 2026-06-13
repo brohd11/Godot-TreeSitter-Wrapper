@@ -18,6 +18,15 @@ namespace godot {
 // StringName; positional fields are ints; assignment/default hold expression text.
 //
 // For granular per-path / changed_only queries, see GDScriptTreeQuery.
+//
+// sparse_parse() is a lightweight per-keystroke pass for syntax highlighting.
+// Returns { "members": {...}, "lines": {...} }, two parallel trees keyed by access
+// path (inner classes appear as their own entries; no nesting/inheritance):
+//   members[path] = { members:[names], constants:[names], functions:{ name:{args:[names]} } }
+//     -- position-independent; hash it to detect real symbol changes
+//   lines[path]   = { line_index, end_line, functions:{ name:{line_index, end_line} } }
+//     -- class + function ranges; refresh boundaries when only these moved
+// Skips locals, assignments, lambdas, types, inner-class lists, and inheritance.
 
 class GDScriptTreeParser : public GDScriptTreeSitter {
     GDCLASS(GDScriptTreeParser, GDScriptTreeSitter);
@@ -27,6 +36,7 @@ protected:
 
 public:
     Dictionary parse_script(const String &p_script_path);
+    Dictionary sparse_parse();
 };
 
 } // namespace godot

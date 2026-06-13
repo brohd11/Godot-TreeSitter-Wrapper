@@ -26,6 +26,7 @@ void GDScriptTreeSitter::_bind_methods() {
     ClassDB::bind_method(D_METHOD("open_text", "text"),    &GDScriptTreeSitter::open_text);
     ClassDB::bind_method(D_METHOD("open_file", "path"),    &GDScriptTreeSitter::open_file);
     ClassDB::bind_method(D_METHOD("reparse_text", "text"), &GDScriptTreeSitter::reparse_text);
+    ClassDB::bind_method(D_METHOD("update_text", "new_text"), &GDScriptTreeSitter::update_text);
     ClassDB::bind_method(
         D_METHOD("apply_edit",
                  "start_byte",  "old_end_byte",  "new_end_byte",
@@ -88,6 +89,58 @@ void GDScriptTreeSitter::reparse_text(const String &p_text) {
                                               _src.get_data(), _src_len);
     ERR_FAIL_COND_MSG(!new_tree, "GDScriptTreeSitter: ts_parser_parse_string returned null.");
     if (_tree) ts_tree_delete(_tree);
+    _tree = new_tree;
+}
+
+// Advance a TSPoint from `start` over the bytes buf[from, to). Column is a byte
+// offset within the line, matching tree-sitter's TSPoint.column convention.
+static TSPoint advance_point(const char *buf, uint32_t from, uint32_t to, TSPoint start) {
+    TSPoint p = start;
+    for (uint32_t i = from; i < to; i++) {
+        if (buf[i] == '\n') { p.row++; p.column = 0; }
+        else                  p.column++;
+    }
+    return p;
+}
+
+void GDScriptTreeSitter::update_text(const String &p_new_text) {
+    // No prior tree (or a previous parse failed): fall back to a full parse.
+    if (!_tree) { open_text(p_new_text); return; }
+
+    CharString new_src = p_new_text.utf8();
+    uint32_t    new_len = (uint32_t)new_src.length();
+    const char *old_buf = _src.get_data();
+    const char *new_buf = new_src.get_data();
+    uint32_t    old_len = _src_len;
+
+    // Longest common prefix (in bytes).
+    uint32_t sb = 0;
+    while (sb < old_len && sb < new_len && old_buf[sb] == new_buf[sb]) sb++;
+    // Longest common suffix, not crossing the prefix.
+    uint32_t oeb = old_len, neb = new_len;
+    while (oeb > sb && neb > sb && old_buf[oeb - 1] == new_buf[neb - 1]) { oeb--; neb--; }
+
+    // Points: prefix is shared, so the start point is identical in both buffers.
+    TSPoint sp  = advance_point(old_buf, 0,  sb,  TSPoint{0, 0});
+    TSPoint oep = advance_point(old_buf, sb, oeb, sp);
+    TSPoint nep = advance_point(new_buf, sb, neb, sp);
+
+    TSInputEdit edit;
+    edit.start_byte    = sb;
+    edit.old_end_byte  = oeb;
+    edit.new_end_byte  = neb;
+    edit.start_point   = sp;
+    edit.old_end_point = oep;
+    edit.new_end_point = nep;
+    ts_tree_edit(_tree, &edit);
+
+    _src     = new_src;
+    _src_len = new_len;
+    _edited  = false;
+    TSTree *new_tree = ts_parser_parse_string(_parser, _tree,
+                                              _src.get_data(), _src_len);
+    ERR_FAIL_COND_MSG(!new_tree, "GDScriptTreeSitter: ts_parser_parse_string returned null.");
+    ts_tree_delete(_tree);
     _tree = new_tree;
 }
 
