@@ -15,8 +15,18 @@ static StringName to_string_name(const String &s) {
     return s.is_empty() ? StringName() : StringName(s);
 }
 
-static StringName check_type(const String &s) {
-    return s.begins_with(":") && s.ends_with("=") ? StringName() : StringName(s);
+// Resolve a var/const `type` field.
+//   explicit annotation (`: int`) -> type text, has_static = true
+//   inferred (`:=`) or no annotation -> empty,   has_static = false
+// tree-sitter does no inference; an `inferred_type` node is only the `:=` token.
+static String extract_type(TSNode stmt, const char *src, uint32_t src_len,
+                           bool &out_has_static) {
+    out_has_static = false;
+    TSNode type_node = ts_field_node(stmt, "type");
+    if (ts_node_is_null(type_node)) return String();
+    if (strcmp(ts_node_type(type_node), "inferred_type") == 0) return String();
+    out_has_static = true;
+    return ts_text(type_node, src, src_len);
 }
 
 // Stamp the six fields every member dictionary shares; callers add their own extras.
@@ -36,12 +46,12 @@ static Dictionary make_member(const StringName &member_type, const String &membe
 }
 
 
-// Forward declaration: collect_locals_v2 and parse_lambda_info_v2 are mutually recursive.
-static void collect_locals_v2(TSNode node, const char *src, uint32_t src_len,
+// Forward declaration: collect_locals and parse_lambda_info are mutually recursive.
+static void collect_locals(TSNode node, const char *src, uint32_t src_len,
                                const String &access_path, const String &script_path,
                                Dictionary &locals);
 
-static Dictionary parse_params_v2(TSNode params, const char *src, uint32_t src_len,
+static Dictionary parse_params(TSNode params, const char *src, uint32_t src_len,
                                     const String &access_path, const String &script_path) {
     const Keys &K = Keys::get();
     Dictionary out;
@@ -90,7 +100,7 @@ static Dictionary parse_params_v2(TSNode params, const char *src, uint32_t src_l
     return out;
 }
 
-static Dictionary parse_lambda_info_v2(TSNode lambda, const char *src, uint32_t src_len,
+static Dictionary parse_lambda_info(TSNode lambda, const char *src, uint32_t src_len,
                                          const String &access_path, const String &script_path) {
     const Keys &K = Keys::get();
     Dictionary locals;
@@ -98,10 +108,10 @@ static Dictionary parse_lambda_info_v2(TSNode lambda, const char *src, uint32_t 
     if (!ts_node_is_null(body_node)) {
         uint32_t bc = ts_node_named_child_count(body_node);
         for (uint32_t j = 0; j < bc; j++)
-            collect_locals_v2(ts_node_named_child(body_node, j), src, src_len, access_path, script_path, locals);
+            collect_locals(ts_node_named_child(body_node, j), src, src_len, access_path, script_path, locals);
     }
     Dictionary info;
-    info[K.args]        = parse_params_v2(ts_field_node(lambda, "parameters"), src, src_len, access_path, script_path);
+    info[K.args]        = parse_params(ts_field_node(lambda, "parameters"), src, src_len, access_path, script_path);
     info[K.return_type] = to_string_name(ts_field(lambda, "return_type", src, src_len));
     info[K.line_index]  = (int)ts_node_start_point(lambda).row;
     info[K.end_line]    = (int)ts_node_end_point(lambda).row;
@@ -109,15 +119,15 @@ static Dictionary parse_lambda_info_v2(TSNode lambda, const char *src, uint32_t 
     return info;
 }
 
-static void maybe_attach_lambda_v2(TSNode var_node, Dictionary &info,
+static void maybe_attach_lambda(TSNode var_node, Dictionary &info,
                                     const char *src, uint32_t src_len,
                                     const String &access_path, const String &script_path) {
     TSNode val = ts_field_node(var_node, "value");
     if (!ts_node_is_null(val) && strcmp(ts_node_type(val), "lambda") == 0)
-        info[Keys::get().lambda] = parse_lambda_info_v2(val, src, src_len, access_path, script_path);
+        info[Keys::get().lambda] = parse_lambda_info(val, src, src_len, access_path, script_path);
 }
 
-static void collect_locals_v2(TSNode node, const char *src, uint32_t src_len,
+static void collect_locals(TSNode node, const char *src, uint32_t src_len,
                                const String &access_path, const String &script_path,
                                Dictionary &locals) {
     const Keys &K = Keys::get();
@@ -132,21 +142,17 @@ static void collect_locals_v2(TSNode node, const char *src, uint32_t src_len,
         String name = ts_field(node, "name", src, src_len);
         if (!name.is_empty()) {
             TSNode sf = ts_field_node(node, "static");
-            TSNode type_node = ts_field_node(node, "type");
-            String type;
-            if (!ts_node_is_null(type_node) &&
-                strcmp(ts_node_type(type_node), "inferred_type") != 0) {
-                type = ts_text(type_node, src, src_len);
-            }
+            bool has_static;
+            String type = extract_type(node, src, src_len, has_static);
             TSNode val_node = ts_field_node(node, "value");
             int line_idx = (int)ts_node_start_point(node).row;
             int col_idx = (int)ts_node_start_point(node).column;
             Dictionary info = make_member(ts_node_is_null(sf) ? StringName("var") : StringName("static var"),
                                           name, node, access_path, script_path);
             info[K.type]            = to_string_name(type);
-            info[K.has_static_type] = !type.is_empty();
+            info[K.has_static_type] = has_static;
             info[K.assignment]      = ts_node_is_null(val_node) ? String() : ts_text(val_node, src, src_len);
-            maybe_attach_lambda_v2(node, info, src, src_len, access_path, script_path);
+            maybe_attach_lambda(node, info, src, src_len, access_path, script_path);
             locals[name + String("-") + itos(line_idx) + String("-") + itos(col_idx)] = info;
         }
     } else if (strcmp(t, "for_statement") == 0) {
@@ -180,7 +186,7 @@ static void collect_locals_v2(TSNode node, const char *src, uint32_t src_len,
 
     uint32_t count = ts_node_named_child_count(node);
     for (uint32_t i = 0; i < count; i++)
-        collect_locals_v2(ts_node_named_child(node, i), src, src_len, access_path, script_path, locals);
+        collect_locals(ts_node_named_child(node, i), src, src_len, access_path, script_path, locals);
 }
 
 static void collect_script(TSNode body, TSNode class_def,
@@ -216,11 +222,12 @@ static void collect_script(TSNode body, TSNode class_def,
         if (strcmp(t, "const_statement") == 0) {
             String name = ts_field(child, "name", src, src_len);
             if (name.is_empty()) continue;
-            String type = ts_field(child, "type", src, src_len);
+            bool has_static;
+            String type = extract_type(child, src, src_len, has_static);
             TSNode val_node = ts_field_node(child, "value");
             Dictionary info = make_member(StringName("const"), name, child, prefix, script_path);
             info[K.type]            = to_string_name(type);
-            info[K.has_static_type] = !type.is_empty();
+            info[K.has_static_type] = has_static;
             info[K.assignment]      = ts_node_is_null(val_node) ? String() : ts_text(val_node, src, src_len);
             constants[name] = info;
             this_scope_consts[name] = info;
@@ -262,19 +269,15 @@ static void collect_script(TSNode body, TSNode class_def,
             String name = ts_field(child, "name", src, src_len);
             if (name.is_empty()) continue;
             TSNode sf = ts_field_node(child, "static");
-            TSNode type_node = ts_field_node(child, "type");
-            String type;
-            if (!ts_node_is_null(type_node) &&
-                strcmp(ts_node_type(type_node), "inferred_type") != 0) {
-                type = ts_text(type_node, src, src_len);
-            }
+            bool has_static;
+            String type = extract_type(child, src, src_len, has_static);
             TSNode val_node = ts_field_node(child, "value");
             Dictionary info = make_member(ts_node_is_null(sf) ? StringName("var") : StringName("static var"),
                                           name, child, prefix, script_path);
             info[K.type]            = to_string_name(type);
-            info[K.has_static_type] = !type.is_empty();
+            info[K.has_static_type] = has_static;
             info[K.assignment]      = ts_node_is_null(val_node) ? String() : ts_text(val_node, src, src_len);
-            maybe_attach_lambda_v2(child, info, src, src_len, prefix, script_path);
+            maybe_attach_lambda(child, info, src, src_len, prefix, script_path);
             members[name] = info;
             continue;
         }
@@ -284,7 +287,7 @@ static void collect_script(TSNode body, TSNode class_def,
             if (name.is_empty()) continue;
             Dictionary info = make_member(StringName("signal"), name, child, prefix, script_path);
             info[K.type]         = StringName();
-            info[K.args]         = parse_params_v2(ts_field_node(child, "parameters"), src, src_len, prefix, script_path);
+            info[K.args]         = parse_params(ts_field_node(child, "parameters"), src, src_len, prefix, script_path);
             members[name] = info;
             continue;
         }
@@ -298,14 +301,14 @@ static void collect_script(TSNode body, TSNode class_def,
             if (!ts_node_is_null(body_node)) {
                 uint32_t bc = ts_node_named_child_count(body_node);
                 for (uint32_t j = 0; j < bc; j++)
-                    collect_locals_v2(ts_node_named_child(body_node, j), src, src_len, prefix, script_path, locals);
+                    collect_locals(ts_node_named_child(body_node, j), src, src_len, prefix, script_path, locals);
             }
             Dictionary info = make_member(has_child_type(child, "static_keyword") ? StringName("static func") : StringName("func"),
                                           name, child, prefix, script_path);
             info[K.type]         = StringName();
             info[K.return_type]  = to_string_name(ts_field(child, "return_type", src, src_len));
             info[K.end_line]     = (int)ts_node_end_point(child).row;
-            info[K.args]         = parse_params_v2(ts_field_node(child, "parameters"), src, src_len, prefix, script_path);
+            info[K.args]         = parse_params(ts_field_node(child, "parameters"), src, src_len, prefix, script_path);
             info[K.locals]       = locals;
             members[name] = info;
             continue;

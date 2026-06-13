@@ -68,7 +68,22 @@ ext_sources = [
     "src/gdscript_tree_query.cpp",
 ]
 
-sources = ts_runtime + ts_grammar + ext_sources
+# Build the vendored tree-sitter runtime + grammar with optimization even when
+# the rest of the build is unoptimized: it's generated/third-party C we never
+# step through, and the large parser.c is painfully slow at -O0. Our own src/
+# objects are left on the godot-cpp target defaults so they stay debuggable.
+#
+# Only bump when the build's own optimize level is below -O2 (dev_build ->
+# optimize=none -> -O0, or optimize=debug -> -Og/-Od). For speed_trace (-O2),
+# speed (-O3), size, and custom we inherit the build's flags unchanged so the
+# libs are never downgraded. The appended flag lands after godot-cpp's own
+# optimize flag, so it wins (last -O level on the command line).
+ts_env = env.Clone()
+if env["optimize"] in ("none", "debug"):
+    ts_env.Append(CCFLAGS=(["/O2"] if env.get("is_msvc", False) else ["-O2"]))
+ts_objects = [ts_env.SharedObject(s) for s in ts_runtime + ts_grammar]
+
+sources = ts_objects + ext_sources
 
 # ---- Output -----------------------------------------------------------------
 
