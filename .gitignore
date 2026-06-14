@@ -2,6 +2,9 @@
 bin/
 *.os
 
+# Packaging output
+build/
+
 # SCons cache
 .sconsign.dblite
 

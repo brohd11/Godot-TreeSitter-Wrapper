@@ -1,6 +1,6 @@
-class_name GDScriptEditorParser extends RefCounted
+class_name GDScriptCodeEditTreeSitter extends RefCounted
 
-## Wraps GDScriptTreeParser with incremental parsing.
+## Binds a GDScriptTreeSitter to a CodeEdit and reparses incrementally.
 ##
 ## parse_text() is the worker that reparses only when the CodeEdit's text version
 ## actually changed (cheap O(1) get_version() check, ~10us). It is wired to the
@@ -8,18 +8,25 @@ class_name GDScriptEditorParser extends RefCounted
 ## per-line _get_line_highlighting(), which Godot calls BEFORE text_changed fires.
 ## Whichever runs first reparses; the other no-ops on the matching version.
 ##
+## This base exposes the raw query() passthrough. Subclasses can swap `parser` for
+## a richer GDScriptTreeSitter variant — see gdscript_code_edit_tree_parser.gd,
+## which uses GDScriptTreeParser and adds a parse() method.
+##
 ## Usage:
-##   var ep := GDScriptEditorParser.new()
+##   var ep := GDScriptCodeEditTreeSitter.new()
 ##   ep.attach(my_code_edit, "res://my_script.gd")
 ##   # in the highlighter's _get_line_highlighting(line):
 ##   if ep.parse_text():
 ##       _refresh_highlight_caches()   # only when a reparse happened
-##   var data := ep.parse()
+##   var matches := ep.query("(function_definition name: (name) @fn)")
 
-var parser := GDScriptTreeParser.new()
+var parser: GDScriptTreeSitter
 var _edit: CodeEdit = null
 var _script_path := ""
 var _prev_version := 0
+
+func _init():
+	parser = GDScriptTreeSitter.new()
 
 
 func attach(edit: CodeEdit, script_path: String = "") -> void:
@@ -42,10 +49,6 @@ func detach() -> void:
 	_prev_version = 0
 
 
-func parse() -> Dictionary:
-	return parser.parse_script(_script_path)
-
-
 ## True when the parse is up to date with the editor (or no editor attached).
 ## O(1): compares Godot's text version counter, which only bumps on text edits.
 func cache_valid() -> bool:
@@ -53,7 +56,7 @@ func cache_valid() -> bool:
 
 
 ## Reparse incrementally if the buffer changed since the last sync; otherwise a
-## cheap no-op. Returns true iff a reparse actually happened. Safe to call from
+## cheap no-op. Returns true if a reparse actually happened. Safe to call from
 ## both the text_changed signal and the highlighter's per-line path.
 func parse_text() -> bool:
 	if cache_valid():
@@ -63,3 +66,7 @@ func parse_text() -> bool:
 	parser.update_text(_edit.text)
 	_prev_version = _edit.get_version()
 	return true
+
+
+func query(pattern:String) -> Array:
+	return parser.query(pattern)
