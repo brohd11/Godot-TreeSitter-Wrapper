@@ -50,10 +50,12 @@ jobs:
     name: package addon
     runs-on: ubuntu-latest
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Runs on a v* tag, or on a manual run (handy for producing a test zip).
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
-        # submodules not needed: package.sh only copies repo-root addon files + bin/
+        # submodules not needed: package.sh only copies the tree_sitter_gd/ folder
+        # plus repo-root LICENSE/README + bin/
 
       - name: Collect binaries
         uses: actions/download-artifact@v4
@@ -65,12 +67,13 @@ jobs:
       - name: Package
         run: ./package.sh
 
-      - name: Zip
-        run: |
-          cd build
-          zip -r ../tree-sitter-gd-addon.zip .
-
-      - name: Attach to release
-        uses: softprops/action-gh-release@v2
+      # Uploads the packaged addon as a downloadable artifact. No release is
+      # created — grab the zip from this run's Summary page and attach it to a
+      # release you author by hand. Download yields <name>.zip containing
+      # tree-sitter-gd-<version>/tree_sitter_gd/...
+      - name: Upload addon zip
+        uses: actions/upload-artifact@v4
         with:
-          files: tree-sitter-gd-addon.zip
+          name: tree-sitter-gd-${{ github.ref_name }}
+          path: build/
+          if-no-files-found: error
