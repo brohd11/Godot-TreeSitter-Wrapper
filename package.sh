@@ -47,9 +47,14 @@ done
 
 # --- compiled libraries (skip cruft) ---
 if compgen -G "bin/*" > /dev/null; then
+    # Godot only loads the runtime libraries (.dylib/.so/.dll). MSVC also emits
+    # import-lib (.lib) and exports (.exp) files alongside the Windows .dll —
+    # those are link-time only and don't belong in the shipped addon.
     find bin -type f \
         ! -name '.DS_Store' \
         ! -name '*.os' \
+        ! -name '*.exp' \
+        ! -name '*.lib' \
         -exec cp {} "$DEST/bin/" \;
 else
     echo "package.sh: warning — bin/ is empty; did you build first?" >&2
