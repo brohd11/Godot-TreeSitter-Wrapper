@@ -16,6 +16,24 @@ For info on [usage](doc/usage.md)
 
 ---
 
+## Installation
+
+Copy the `tree_sitter_gd/` folder from a release into your project's `addons/` directory.
+
+### macOS: unblocking the binaries
+
+The macOS libraries are not notarized by Apple, so anything downloaded through a browser is
+flagged by Gatekeeper (`com.apple.quarantine`) and Godot will refuse to load the extension.
+After copying the addon into your project, clear the flag once:
+
+```bash
+xattr -dr com.apple.quarantine path/to/project/addons/tree_sitter_gd
+```
+
+Then reopen the project. (Windows and Linux are unaffected.)
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
