@@ -13,7 +13,10 @@ namespace godot {
 //     "class_name", "extends", "line_index", "column_index", "end_line",
 //     "members":       { name → member info },
 //     "constants":     { name → const/enum info (inherited consts included) },
-//     "inner_classes": { name → stub } }
+//     "inner_classes": { name → stub } — every class referenceable by name from
+//        this scope: inherited ancestors + siblings + own children + self
+//        (root has no self). Own children shadow inherited same-name entries;
+//        self shadows a nested same-name child (InnerClass.InnerClass → self). }
 // member_type / member_name / type / return_type / access_path / script_path are
 // StringName; positional fields are ints; assignment/default hold expression text.
 //

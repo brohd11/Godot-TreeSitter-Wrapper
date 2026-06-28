@@ -189,10 +189,24 @@ static void collect_locals(TSNode node, const char *src, uint32_t src_len,
         collect_locals(ts_node_named_child(node, i), src, src_len, access_path, script_path, locals);
 }
 
+// Lightweight inner-class entry: identity + extends + range, no members. `path`
+// is the class's own access path; used both for sibling stubs and a scope's self.
+static Dictionary make_class_stub(TSNode class_node, const String &name, const String &path,
+                                  const String &script_path, const char *src, uint32_t src_len) {
+    const Keys &K = Keys::get();
+    TSNode ext = ts_field_node(class_node, "extends");
+    Dictionary stub = make_member(StringName("class"), name, class_node, path, script_path);
+    stub[K.extends]  = ts_node_is_null(ext) ? String() : extends_from_node(ext, src, src_len);
+    stub[K.end_line] = (int)ts_node_end_point(class_node).row;
+    stub[K.type]     = to_string_name(script_path + String(".") + path);
+    return stub;
+}
+
 static void collect_script(TSNode body, TSNode class_def,
                              const char *src, uint32_t src_len,
                              const String &prefix, const String &script_path,
-                             const Dictionary &inherited_constants, Dictionary &out) {
+                             const Dictionary &inherited_constants,
+                             const Dictionary &inherited_inner_classes, Dictionary &out) {
     const Keys &K = Keys::get();
     String scope_name;
     if (!prefix.is_empty()) {
@@ -212,10 +226,15 @@ static void collect_script(TSNode body, TSNode class_def,
 
     Dictionary constants = inherited_constants.duplicate();
     Dictionary this_scope_consts;
+    // Accessible inner classes: everything visible from the parent (ancestors +
+    // siblings + the parent itself), accumulated down the tree. Own children and
+    // self are layered on below so they shadow inherited same-name entries.
+    Dictionary accessible = inherited_inner_classes.duplicate();
     uint32_t count = ts_node_named_child_count(body);
 
     // Pass 1: collect own consts/enums so they propagate to inner classes regardless of
-    // declaration order (GDScript allows forward references to constants).
+    // declaration order (GDScript allows forward references to constants). Inner-class
+    // stubs are also built here so every sibling exists before we recurse into any child.
     for (uint32_t i = 0; i < count; i++) {
         TSNode child = ts_node_named_child(body, i);
         const char *t = ts_node_type(child);
@@ -239,8 +258,19 @@ static void collect_script(TSNode body, TSNode class_def,
             info[K.type]         = StringName();
             constants[key] = info;
             this_scope_consts[key] = info;
+        } else if (strcmp(t, "class_definition") == 0) {
+            String name = ts_field(child, "name", src, src_len);
+            if (name.is_empty()) continue;
+            String new_path = prefix.is_empty() ? name : (prefix + String(".") + name);
+            // own child shadows inherited same-name entry
+            accessible[name] = make_class_stub(child, name, new_path, script_path, src, src_len);
         }
     }
+
+    // Self wins same-name collisions with a nested class (InnerClass.InnerClass
+    // resolves to the enclosing class). Root (empty prefix) has no self entry.
+    if (!prefix.is_empty())
+        accessible[scope_name] = make_class_stub(class_def, scope_name, prefix, script_path, src, src_len);
 
     // Build the constants dict that inner classes will inherit (includes ours + ancestors').
     Dictionary child_inherited = inherited_constants.duplicate();
@@ -250,7 +280,6 @@ static void collect_script(TSNode body, TSNode class_def,
 
     // Pass 2: everything else.
     Dictionary members;
-    Dictionary inner_classes;
 
     for (uint32_t i = 0; i < count; i++) {
         TSNode child = ts_node_named_child(body, i);
@@ -318,23 +347,19 @@ static void collect_script(TSNode body, TSNode class_def,
             String name = ts_field(child, "name", src, src_len);
             if (name.is_empty()) continue;
             String new_path = prefix.is_empty() ? name : (prefix + String(".") + name);
-            TSNode ext = ts_field_node(child, "extends");
-            Dictionary stub = make_member(StringName("class"), name, child, new_path, script_path);
-            stub[K.extends]      = ts_node_is_null(ext) ? String() : extends_from_node(ext, src, src_len);
-            stub[K.end_line]     = (int)ts_node_end_point(child).row;
-            stub[K.type]         = to_string_name(new_path.is_empty() ? script_path : script_path + String(".") + new_path);
-            inner_classes[name]  = stub;
-
+            // Stub already built into `accessible` in Pass 1. Pass the full accessible
+            // set (incl. this scope's self) down so descendants can reference it.
             TSNode inner_body = ts_field_node(child, "body");
             if (!ts_node_is_null(inner_body))
-                collect_script(inner_body, child, src, src_len, new_path, script_path, child_inherited, out);
+                collect_script(inner_body, child, src, src_len, new_path, script_path,
+                               child_inherited, accessible, out);
             continue;
         }
     }
 
     scope[K.members]       = members;
     scope[K.constants]     = constants;
-    scope[K.inner_classes] = inner_classes;
+    scope[K.inner_classes] = accessible;
     out[prefix] = scope;
 }
 
@@ -467,8 +492,9 @@ Dictionary GDScriptTreeParser::parse_script(const String &p_script_path) {
     Dictionary out;
     if (_edited || !_tree) return out;
     Dictionary inherited_constants;
+    Dictionary inherited_inner_classes;
     collect_script(ts_tree_root_node(_tree), TSNode{}, _src.get_data(), _src_len,
-                   String(), p_script_path, inherited_constants, out);
+                   String(), p_script_path, inherited_constants, inherited_inner_classes, out);
     return out;
 }
 
