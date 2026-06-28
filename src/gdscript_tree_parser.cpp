@@ -158,14 +158,11 @@ static void collect_locals(TSNode node, const char *src, uint32_t src_len,
     } else if (strcmp(t, "for_statement") == 0) {
         TSNode left = ts_field_node(node, "left");
         if (!ts_node_is_null(left)) {
-            const char *lt = ts_node_type(left);
-            String name, type;
-            if (strcmp(lt, "identifier") == 0) {
-                name = ts_text(left, src, src_len);
-            } else if (strcmp(lt, "typed_parameter") == 0) {
-                name = first_ident_child(left, src, src_len);
-                type = ts_field(left, "type", src, src_len);
-            }
+            // Grammar: `left` is always a plain identifier; an optional type hint
+            // (`for a: String in ...`) is a `type` field on the for_statement node.
+            String name = ts_text(left, src, src_len);
+            bool has_static;
+            String type = extract_type(node, src, src_len, has_static);
             TSNode right = ts_field_node(node, "right");
 
             if (!name.is_empty()) {
@@ -173,7 +170,7 @@ static void collect_locals(TSNode node, const char *src, uint32_t src_len,
                 int col_idx = (int)ts_node_start_point(node).column;
                 Dictionary info = make_member(StringName("for"), name, node, access_path, script_path);
                 info[K.type]            = to_string_name(type);
-                info[K.has_static_type] = !type.is_empty();
+                info[K.has_static_type] = has_static;
                 if (!ts_node_is_null(right)) {
                     info[K.assignment]  = ts_text(right, src, src_len);
                 } else {
