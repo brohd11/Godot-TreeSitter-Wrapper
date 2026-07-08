@@ -23,7 +23,7 @@ class_name GDScriptCodeEditTreeSitter extends RefCounted
 var parser: GDScriptTreeSitter
 var _edit: CodeEdit = null
 var _script_path := ""
-var _prev_version := 0
+var _prev_version := -1
 
 func _init():
 	parser = GDScriptTreeSitter.new()
@@ -46,7 +46,7 @@ func detach() -> void:
 	if _edit != null and _edit.text_changed.is_connected(parse_text):
 		_edit.text_changed.disconnect(parse_text)
 	_edit = null
-	_prev_version = 0
+	_prev_version = -1
 
 
 ## True when the parse is up to date with the editor (or no editor attached).
