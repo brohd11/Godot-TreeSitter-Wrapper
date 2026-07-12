@@ -147,6 +147,12 @@ when the editor's text version actually changes — wire `attach(edit, path)` on
 `parse_text()` from `text_changed` (and/or a highlighter's per-line callback). It exposes
 `query()` straight through. See the file's header comment for the full pattern.
 
+`path` is a label, not a source: it is what `parse_script()` stamps into the parsed member data as
+`script_path`, and the text always comes from the attached `CodeEdit` so an unsaved buffer is still
+reflected. Pass `prefer_code_edit = false` to parse the saved file (`open_file`) instead. Use
+`set_script_path(path)` to re-label without touching the tree, e.g. when one `CodeEdit` is reused
+across scripts.
+
 ---
 
 ## GDScriptTreeParser (footnote)
