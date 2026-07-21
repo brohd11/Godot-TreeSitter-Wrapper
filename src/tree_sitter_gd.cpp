@@ -220,6 +220,7 @@ void GDScriptTreeSitter::set_bracket_mode(bool p_enabled) {
     if (!_bracket_mode) {
         _bracket_lines.clear();
         _line_starts.clear();
+        _brackets_dict.clear();
         return;
     }
     if (_tree && !_edited) {
@@ -233,16 +234,8 @@ bool GDScriptTreeSitter::get_bracket_mode() const {
 }
 
 Dictionary GDScriptTreeSitter::get_brackets() const {
-    Dictionary out;
-    if (_edited || !_tree || !_bracket_mode) return out;
-    for (size_t row = 0; row < _bracket_lines.size(); row++) {
-        const BracketLine &bl = _bracket_lines[row];
-        if (bl.entries.empty()) continue;
-        Dictionary line_map;
-        for (const auto &e : bl.entries) line_map[e.first] = e.second;
-        out[(int64_t)row] = line_map;
-    }
-    return out;
+    if (_edited || !_tree || !_bracket_mode) return Dictionary();
+    return _brackets_dict;
 }
 
 void GDScriptTreeSitter::_rebuild_line_starts() {
@@ -317,6 +310,15 @@ void GDScriptTreeSitter::_brackets_full_scan() {
     _bracket_lines.assign(_line_starts.size(), BracketLine{});
     if (!_tree || _line_starts.empty()) return;
     _scan_brackets(ts_tree_root_node(_tree), 0, 0, (uint32_t)_line_starts.size() - 1);
+
+    _brackets_dict.clear(); // clear+refill: the public dict stays the same object
+    for (size_t row = 0; row < _bracket_lines.size(); row++) {
+        const BracketLine &bl = _bracket_lines[row];
+        if (bl.entries.empty()) continue;
+        Dictionary line_map;
+        for (const auto &e : bl.entries) line_map[e.first] = e.second;
+        _brackets_dict[(int64_t)row] = line_map;
+    }
 }
 
 void GDScriptTreeSitter::_brackets_after_edit(uint32_t start_row, uint32_t old_end_row,
@@ -359,6 +361,50 @@ void GDScriptTreeSitter::_brackets_after_edit(uint32_t start_row, uint32_t old_e
         for (size_t r = r1 + 1; r < _bracket_lines.size(); r++) {
             for (auto &e : _bracket_lines[r].entries) e.second += delta;
             _bracket_lines[r].end_depth += delta;
+        }
+    }
+
+    // Sync the public Dictionary in place (it stays the same object).
+    // Order matters: the dict is still in OLD coordinates here, so erase the
+    // spliced-out old rows first, then shift the rows below, then insert the
+    // rescanned rows in new coordinates.
+    for (uint32_t r = r0; r <= old_r1; r++)
+        _brackets_dict.erase((int64_t)r);
+    if (row_delta != 0) {
+        // Re-key rows below the spliced region (keys > old_r1 shift by row_delta).
+        Array keys = _brackets_dict.keys();
+        Array moved_keys, moved_vals;
+        for (int i = 0; i < keys.size(); i++) {
+            int64_t row = keys[i];
+            if (row > (int64_t)old_r1) {
+                moved_vals.push_back(_brackets_dict[keys[i]]);
+                _brackets_dict.erase(keys[i]);
+                moved_keys.push_back(row + row_delta);
+            }
+        }
+        for (int i = 0; i < moved_keys.size(); i++)
+            _brackets_dict[moved_keys[i]] = moved_vals[i];
+    }
+    // Insert the rescanned rows (new coordinates).
+    for (uint32_t r = r0; r <= r1; r++) {
+        const BracketLine &bl = _bracket_lines[r];
+        if (!bl.entries.empty()) {
+            Dictionary line_map;
+            for (const auto &e : bl.entries) line_map[e.first] = e.second;
+            _brackets_dict[(int64_t)r] = line_map;
+        }
+    }
+    // Apply the depth shift to the rows below (nested dicts are shared refs).
+    if (delta != 0) {
+        Array keys = _brackets_dict.keys();
+        for (int i = 0; i < keys.size(); i++) {
+            int64_t row = keys[i];
+            if (row > (int64_t)r1) {
+                Dictionary line_map = _brackets_dict[keys[i]];
+                Array cols = line_map.keys();
+                for (int j = 0; j < cols.size(); j++)
+                    line_map[cols[j]] = (int64_t)line_map[cols[j]] + delta;
+            }
         }
     }
 }

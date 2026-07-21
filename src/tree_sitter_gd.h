@@ -32,13 +32,19 @@ namespace godot {
 // tokens (()[]{}) for colored-bracket highlighting, updated incrementally on
 // every parse: update_text() re-scans only the rows touched by the edit (byte
 // diff union tree-sitter changed ranges, so structural fall-out like an
-// unmatched quote restringing the lines below is covered). get_brackets()
-// returns { line: { column: depth } } — all ints, insertion-ordered, lines
-// with no brackets absent; column is a *character* column (unlike the byte
-// columns of query()/apply_edit()); depth is the raw running nesting level,
-// shared by an opener and its match. Depth is NOT clamped at 0: a stray closer
-// pushes it negative until balanced — color with posmod(depth, n). Brackets
-// inside strings/comments are not tokens and never appear.
+// unmatched quote restringing the lines below is covered) and syncs the
+// public Dictionary in place — the cost is paid at parse time, not read time.
+// get_brackets() returns that Dictionary by reference: { line: { column:
+// depth } } — all ints, insertion-ordered, lines with no brackets absent;
+// column is a *character* column (unlike the byte columns of query()/
+// apply_edit()); depth is the raw running nesting level, shared by an opener
+// and its match. Depth is NOT clamped at 0: a stray closer pushes it negative
+// until balanced — color with posmod(depth, n). Brackets inside strings/
+// comments are not tokens and never appear.
+//
+// The returned Dictionary is always the same object (full scans clear()+refill
+// it), so callers may fetch it once and hold the reference across edits.
+// Treat it as read-only: mutating it corrupts the maintenance bookkeeping.
 
 class GDScriptTreeSitter : public RefCounted {
     GDCLASS(GDScriptTreeSitter, RefCounted);
@@ -58,6 +64,10 @@ protected:
     bool                    _bracket_mode = false;
     std::vector<BracketLine> _bracket_lines; // one per row, including empty rows
     std::vector<uint32_t>    _line_starts;   // byte offset of each row's first byte
+    // Public view derived from _bracket_lines, kept up-to-date by every parse.
+    // Always the same object: full scans clear()+refill it so GDScript can hold
+    // the reference across edits. Read-only for consumers.
+    Dictionary             _brackets_dict;
 
     void _rebuild_line_starts();
     // Fills _bracket_lines rows [from_row, to_row] by walking `scope` (must
