@@ -6,7 +6,10 @@
 # LICENSE and README live at the repo root (for GitHub) and are copied in too.
 # Compiled libraries are pulled from bin/.
 #
-# Version is read from tree_sitter_gd/plugin.cfg. A pre-existing build/ is removed first.
+# Version comes from `git describe` (exact tag = clean release, -N-g<hash>
+# suffix = built past the tag); plugin.cfg is only a fallback and the PACKAGED
+# plugin.cfg gets stamped with the resolved version. A pre-existing build/ is
+# removed first.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,10 +22,18 @@ if [[ ! -d "$ADDON_SRC" ]]; then
     exit 1
 fi
 
-# --- version from plugin.cfg: version="x.x.x" ---
-VERSION="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$ADDON_SRC/plugin.cfg" | head -n1)"
+# --- version: git describe (exact tag = clean release, suffix = mistagged) ---
+VERSION=""
+if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    VERSION="$(git describe --tags --always 2>/dev/null || true)"
+    VERSION="${VERSION#v}"   # tags are v-prefixed, plugin versions are not
+fi
 if [[ -z "$VERSION" ]]; then
-    echo "package.sh: could not read version from $ADDON_SRC/plugin.cfg" >&2
+    # fallback (packaging from a tarball etc.): read from plugin.cfg
+    VERSION="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$ADDON_SRC/plugin.cfg" | head -n1)"
+fi
+if [[ -z "$VERSION" ]]; then
+    echo "package.sh: could not determine version (git describe failed, plugin.cfg fallback empty)" >&2
     exit 1
 fi
 
@@ -35,6 +46,10 @@ mkdir -p "$DEST/bin"
 # --- addon source (recursive: everything in the folder ships) ---
 cp -R "$ADDON_SRC/." "$DEST/"
 find "$DEST" -name '.DS_Store' -delete
+
+# --- stamp the version into the packaged plugin.cfg (source stays untouched) ---
+sed -i.bak 's/^[[:space:]]*version[[:space:]]*=.*/version="'"$VERSION"'"/' "$DEST/plugin.cfg"
+rm -f "$DEST/plugin.cfg.bak"
 
 # --- repo-root docs ---
 for f in LICENSE README.md; do

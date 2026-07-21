@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0 # full history so git describe sees tag refs on every build
 
       - uses: actions/setup-python@v5
         with:
