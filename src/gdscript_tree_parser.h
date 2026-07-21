@@ -30,6 +30,7 @@ namespace godot {
 //   lines[path]   = { line_index, end_line, functions:{ name:{line_index, end_line} } }
 //     -- class + function ranges; refresh boundaries when only these moved
 // Skips locals, assignments, lambdas, types, inner-class lists, and inheritance.
+// (For colored-bracket highlighting see bracket mode on GDScriptTreeSitter.)
 
 class GDScriptTreeParser : public GDScriptTreeSitter {
     GDCLASS(GDScriptTreeParser, GDScriptTreeSitter);

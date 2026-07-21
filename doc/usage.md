@@ -66,6 +66,33 @@ for m in ts.query("(function_definition name: (name) @fn)"):
     print(m["fn"]["text"], " @ line ", m["fn"]["start_line"])
 ```
 
+### Bracket mode
+
+`set_bracket_mode(enabled: bool)` / `get_bracket_mode() -> bool` / `get_brackets() -> Dictionary`
+
+Opt-in bracket tracking for colored-bracket highlighting. While enabled, every
+parse maintains a per-line bracket map internally: `update_text()` re-scans only
+the rows touched by the edit (the byte diff union tree-sitter's changed ranges,
+so structural fall-out like an unmatched quote restringing the lines below is
+covered) instead of walking the whole tree per keystroke.
+
+```gdscript
+parser.set_bracket_mode(true)   # once, after creating the parser
+# per keystroke:
+parser.update_text(edit.text)
+var brackets: Dictionary = parser.get_brackets()
+# { line: { column: depth } } — all ints, insertion-ordered;
+# lines with no brackets have no entry
+```
+
+- `column` is a *character* column (unlike the byte columns used by `query()`
+  and `apply_edit()`).
+- `depth` is the raw nesting level shared by an opener and its match; it is
+  **not clamped at 0** — a stray closer pushes it negative until balanced.
+  Color with `posmod(depth, num_colors)`.
+- Brackets inside strings and comments never appear (their contents are not
+  tokens in the grammar).
+
 ---
 
 ## GDScriptTreeQuery

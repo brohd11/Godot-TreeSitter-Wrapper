@@ -2,9 +2,11 @@
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/string.hpp>
-
-struct TSParser;
-struct TSTree;
+#include <godot_cpp/variant/dictionary.hpp>
+#include <tree_sitter/api.h>
+#include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace godot {
 
@@ -25,6 +27,18 @@ namespace godot {
 //                                                 "start_col", "end_col" } }
 //
 // All query methods return empty values if called between apply_edit and reparse_text.
+//
+// Bracket mode (set_bracket_mode(true)) maintains a per-line map of bracket
+// tokens (()[]{}) for colored-bracket highlighting, updated incrementally on
+// every parse: update_text() re-scans only the rows touched by the edit (byte
+// diff union tree-sitter changed ranges, so structural fall-out like an
+// unmatched quote restringing the lines below is covered). get_brackets()
+// returns { line: { column: depth } } — all ints, insertion-ordered, lines
+// with no brackets absent; column is a *character* column (unlike the byte
+// columns of query()/apply_edit()); depth is the raw running nesting level,
+// shared by an opener and its match. Depth is NOT clamped at 0: a stray closer
+// pushes it negative until balanced — color with posmod(depth, n). Brackets
+// inside strings/comments are not tokens and never appear.
 
 class GDScriptTreeSitter : public RefCounted {
     GDCLASS(GDScriptTreeSitter, RefCounted);
@@ -35,6 +49,27 @@ protected:
     CharString _src;
     uint32_t   _src_len = 0;
     bool       _edited  = false;
+
+    // --- bracket mode state -------------------------------------------------
+    struct BracketLine {
+        std::vector<std::pair<int32_t, int32_t>> entries; // (char column, depth), source order
+        int32_t end_depth = 0;                            // running depth after this line
+    };
+    bool                    _bracket_mode = false;
+    std::vector<BracketLine> _bracket_lines; // one per row, including empty rows
+    std::vector<uint32_t>    _line_starts;   // byte offset of each row's first byte
+
+    void _rebuild_line_starts();
+    // Fills _bracket_lines rows [from_row, to_row] by walking `scope` (must
+    // cover those rows), with `start_depth` = running depth at from_row.
+    void _scan_brackets(TSNode scope, int32_t start_depth, uint32_t from_row, uint32_t to_row);
+    void _brackets_full_scan();
+    // Incremental update after update_text(): byte-diff rows plus tree-sitter
+    // changed ranges (new-tree coordinates) delimit the rows to re-scan.
+    // p_new_tree is the freshly parsed tree; _tree still points at the old one
+    // while this runs.
+    void _brackets_after_edit(uint32_t start_row, uint32_t old_end_row, uint32_t new_end_row,
+                              const TSRange *ranges, uint32_t range_count, TSTree *p_new_tree);
 
     static void _bind_methods();
 
@@ -52,6 +87,10 @@ public:
     void reparse_text(const String &p_text);
     void update_text(const String &p_new_text);
     Array query(const String &p_pattern);
+
+    void set_bracket_mode(bool p_enabled);
+    bool get_bracket_mode() const;
+    Dictionary get_brackets() const;
 };
 
 } // namespace godot
