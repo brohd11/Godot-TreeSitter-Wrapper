@@ -34,6 +34,9 @@ namespace godot {
 // diff union tree-sitter changed ranges, so structural fall-out like an
 // unmatched quote restringing the lines below is covered) and syncs the
 // public Dictionary in place — the cost is paid at parse time, not read time.
+// A wholesale text replacement (e.g. swapping scripts on a shared instance)
+// triggers a full rescan instead, so no rows from the previous document can
+// survive; clear_brackets() drops the map without disabling bracket mode.
 // get_brackets() returns that Dictionary by reference: { line: { column:
 // depth } } — all ints, insertion-ordered, lines with no brackets absent;
 // column is a *character* column (unlike the byte columns of query()/
@@ -76,8 +79,8 @@ protected:
     void _brackets_full_scan();
     // Incremental update after update_text(): byte-diff rows plus tree-sitter
     // changed ranges (new-tree coordinates) delimit the rows to re-scan.
-    // p_new_tree is the freshly parsed tree; _tree still points at the old one
-    // while this runs.
+    // p_new_tree is the freshly parsed tree (also stored in _tree by then);
+    // the old tree stays alive until after this runs.
     void _brackets_after_edit(uint32_t start_row, uint32_t old_end_row, uint32_t new_end_row,
                               const TSRange *ranges, uint32_t range_count, TSTree *p_new_tree);
 
@@ -101,6 +104,9 @@ public:
     void set_bracket_mode(bool p_enabled);
     bool get_bracket_mode() const;
     Dictionary get_brackets() const;
+    // Drops the bracket map without disabling bracket mode — the next parse
+    // rebuilds it. For script swaps / detach on a shared parse instance.
+    void clear_brackets();
 };
 
 } // namespace godot

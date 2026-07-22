@@ -32,7 +32,8 @@ func _init():
 ## `script_path` is a label: it is stamped into the member data GDScriptTreeParser.parse_script()
 ## emits, and is never used to read the file unless `prefer_code_edit` is false. With a CodeEdit
 ## attached its buffer is the source of truth - open_file() would parse the saved file instead, so an
-## unsaved buffer would silently never be reflected.
+## unsaved buffer would silently never be reflected. Reparses from scratch, so
+## bracket-mode state is always fresh for the newly attached script.
 func attach(edit: CodeEdit, script_path: String = "", prefer_code_edit := true) -> void:
 	if _edit != null and _edit.text_changed.is_connected(parse_text):
 		_edit.text_changed.disconnect(parse_text)
@@ -52,11 +53,15 @@ func set_script_path(script_path: String) -> void:
 	_script_path = script_path
 
 
+## Detach from the current CodeEdit. Also clears the bracket map so a shared
+## instance can never serve the previous script's brackets while detached —
+## the next attach() rebuilds them from scratch via open_text().
 func detach() -> void:
 	if _edit != null and _edit.text_changed.is_connected(parse_text):
 		_edit.text_changed.disconnect(parse_text)
 	_edit = null
 	_prev_version = -1
+	parser.clear_brackets()
 
 
 ## True when the parse is up to date with the editor (or no editor attached).

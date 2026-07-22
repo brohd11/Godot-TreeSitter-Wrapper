@@ -39,6 +39,7 @@ void GDScriptTreeSitter::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_bracket_mode", "enabled"), &GDScriptTreeSitter::set_bracket_mode);
     ClassDB::bind_method(D_METHOD("get_bracket_mode"), &GDScriptTreeSitter::get_bracket_mode);
     ClassDB::bind_method(D_METHOD("get_brackets"), &GDScriptTreeSitter::get_brackets);
+    ClassDB::bind_method(D_METHOD("clear_brackets"), &GDScriptTreeSitter::clear_brackets);
 }
 
 void GDScriptTreeSitter::open_text(const String &p_text) {
@@ -153,20 +154,30 @@ void GDScriptTreeSitter::update_text(const String &p_new_text) {
     TSTree *new_tree = ts_parser_parse_string(_parser, old_tree,
                                               _src.get_data(), _src_len);
     ERR_FAIL_COND_MSG(!new_tree, "GDScriptTreeSitter: ts_parser_parse_string returned null.");
+    _tree = new_tree; // old_tree stays alive for the changed-ranges diff below
 
     if (_bracket_mode) {
         _rebuild_line_starts();
-        // Changed ranges must be read while both trees are alive. They cover
-        // structural fall-out beyond the byte diff (e.g. an unmatched quote
-        // restringing everything below), so the bracket re-scan stays correct.
-        uint32_t range_count = 0;
-        TSRange *ranges = ts_tree_get_changed_ranges(old_tree, new_tree, &range_count);
-        _brackets_after_edit(sp.row, oep.row, nep.row, ranges, range_count, new_tree);
-        ::free(ranges); // :: — GDCLASS injects a member named `free`
+        // Wholesale replacement (script swap on a shared instance): the
+        // splice/re-key bookkeeping in _brackets_after_edit() is built for
+        // incremental edits — rebuild from scratch so no rows from the
+        // previous document can survive. _bracket_lines still holds the OLD
+        // document's row count here; oep is the diff end in old coordinates.
+        bool wholesale = sp.row == 0 && oep.row + 1 >= (uint32_t)_bracket_lines.size();
+        if (wholesale) {
+            _brackets_full_scan();
+        } else {
+            // Changed ranges must be read while both trees are alive. They cover
+            // structural fall-out beyond the byte diff (e.g. an unmatched quote
+            // restringing everything below), so the bracket re-scan stays correct.
+            uint32_t range_count = 0;
+            TSRange *ranges = ts_tree_get_changed_ranges(old_tree, new_tree, &range_count);
+            _brackets_after_edit(sp.row, oep.row, nep.row, ranges, range_count, new_tree);
+            ::free(ranges); // :: — GDCLASS injects a member named `free`
+        }
     }
 
     ts_tree_delete(old_tree);
-    _tree = new_tree;
 }
 
 Array GDScriptTreeSitter::query(const String &p_pattern) {
@@ -218,15 +229,19 @@ void GDScriptTreeSitter::set_bracket_mode(bool p_enabled) {
     if (p_enabled == _bracket_mode) return;
     _bracket_mode = p_enabled;
     if (!_bracket_mode) {
-        _bracket_lines.clear();
-        _line_starts.clear();
-        _brackets_dict.clear();
+        clear_brackets();
         return;
     }
     if (_tree && !_edited) {
         _rebuild_line_starts();
         _brackets_full_scan();
     }
+}
+
+void GDScriptTreeSitter::clear_brackets() {
+    _bracket_lines.clear();
+    _line_starts.clear();
+    _brackets_dict.clear();
 }
 
 bool GDScriptTreeSitter::get_bracket_mode() const {

@@ -68,14 +68,18 @@ for m in ts.query("(function_definition name: (name) @fn)"):
 
 ### Bracket mode
 
-`set_bracket_mode(enabled: bool)` / `get_bracket_mode() -> bool` / `get_brackets() -> Dictionary`
+`set_bracket_mode(enabled: bool)` / `get_bracket_mode() -> bool` / `get_brackets() -> Dictionary` / `clear_brackets()`
 
 Opt-in bracket tracking for colored-bracket highlighting. While enabled, every
 parse maintains the bracket map internally: `update_text()` re-scans only the
 rows touched by the edit (the byte diff union tree-sitter's changed ranges, so
 structural fall-out like an unmatched quote restringing the lines below is
 covered) and syncs the public Dictionary in place — the cost is paid at parse
-time, not read time.
+time, not read time. A wholesale text replacement (e.g. swapping scripts on a
+shared parse instance) triggers a full rescan instead, so no rows from the
+previous document can survive. `clear_brackets()` drops the map without
+disabling bracket mode (the next parse rebuilds it) — `detach()` on
+`GDScriptCodeEditTreeSitter` calls it for you.
 
 ```gdscript
 parser.set_bracket_mode(true)   # once, after creating the parser
